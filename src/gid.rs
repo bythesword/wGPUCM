@@ -333,7 +333,7 @@ mod gid {
     pub struct OneTetrahedronNetwork {
         network: Vec<Vec<u64>>, //四面体节点数据index（a,b,c,d）
         lines: HashMap<String, HashMap<f32, [f32; 3]>>, //所有lines，插值后的插值，String（a，b）节点的排序；hashmap的f32是插值结果（可能多个）与对应的xyz
-        out_triangles:HashMap<f32,Vec<f32>>,//输出
+        // out_triangles:HashMap<f32,Vec<f32>>,//输出
     }
     pub struct TetrahedronNetwork {
         meshs: HashMap<String, OneTetrahedronNetwork>,
