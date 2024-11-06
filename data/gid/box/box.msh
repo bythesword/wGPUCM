@@ -1,0 +1,15 @@
+ Mesh "aec8g2" Dimension 3 Elemtype Hexahedra Nnode 8
+ Coordinates
+      1            0.           2.5           2.5
+      2            0.            5.           2.5
+      3            0.            5.            0.
+      4            0.           2.5            0.
+      5           2.5            5.           2.5
+      6           2.5            5.            0.
+      7           2.5           2.5            0.
+      8           2.5           2.5           2.5
+ End coordinates
+ Elements
+            1  8  5  6  7  1  2  3  4         1          
+ End elements
+ 
