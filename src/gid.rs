@@ -1,7 +1,12 @@
 //! GID解析
-pub use gid::{generate_network_tetrahedron_for_gid, get_hexahedra8_of_triangle, get_msh, get_res};
+pub use gid::{
+    generate_network_tetrahedron_for_gid, get_hexahedra8_of_triangle, get_msh, get_res,
+    get_res_by_site_frame_id, get_tetrahedra4_of_triangle, get_value_point_of_AB,
+};
 pub use gid::{mesh_source, resource_source};
 mod gid {
+    // use cgmath::Vector3;
+    use nalgebra::Vector3;
 
     use std::{
         collections::HashMap,
@@ -31,9 +36,9 @@ mod gid {
 
     pub struct resource_source {
         // result_componet: Vec<String>, //abc.u ,...
-        result_componet: HashMap<String, String>, //abc.u ,...
-        result: HashMap<String, HashMap<String, HashMap<u64, f32>>>,
-        frames: Vec<String>, //帧列表,步长与名称是统一的
+        result_componet: Vec<String>, //abc.u ,...
+        result: HashMap<String, HashMap<String, HashMap<u64, f32>>>, //<"a.b",<"frame id of string",<node_id,value>>>
+        frames: Vec<String>,                                         //帧列表,步长与名称是统一的
     }
 
     pub fn get_data_from_file(filename: &str) -> std::io::Lines<BufReader<File>> {
@@ -195,8 +200,10 @@ mod gid {
         let mut component_name: Vec<String> = Vec::new(); //当前result的component name，每次component清空
         let mut frame_name: String = String::new(); //当前result的frame名称，
 
+        let mut frame_name_list: HashMap<String, String> = HashMap::new();
+        let mut result_componet_list = HashMap::new();
         let mut source: resource_source = resource_source {
-            result_componet: HashMap::new(),
+            result_componet: Vec::new(),
             result: HashMap::new(),
             frames: Vec::new(),
         };
@@ -218,6 +225,7 @@ mod gid {
                         let frame_string: Vec<&str> =
                             _space_seperator.split(data_split[4]).into_iter().collect();
                         frame_name = frame_string[1].to_owned();
+                        frame_name_list.insert(frame_name.clone(), frame_name.clone());
                     }
                     if is_result {
                         continue;
@@ -238,9 +246,8 @@ mod gid {
                             //组合形成a.b形式的名称
                             let name_of_ab =
                                 result_name.clone() + &"." + &component_list[i].clone(); //通过符号“.”链接的名称：a.b                                                                                               //插入KV
-                            source
-                                .result_componet
-                                .insert(name_of_ab.clone(), name_of_ab.clone());
+
+                            result_componet_list.insert(name_of_ab.clone(), name_of_ab.clone());
                             component_name.push(name_of_ab.clone()); //当前的组件名称vec push
                                                                      //hashmap是有此a.b的名称
                             let is_result_component = source.result.get_mut(&name_of_ab);
@@ -320,38 +327,275 @@ mod gid {
                 }
             }
         }
+        for per_sitename in result_componet_list.values() {
+            source.result_componet.push(per_sitename.to_string());
+        }
+        for (k, v) in frame_name_list {
+            source.frames.push(k);
+        }
         source
     }
 
     pub fn hello() {
         print!("hello GID");
     }
+    //第1个String是线段的两个node的排序名称你
+    //所有lines，插值后的插值，String（a，b）节点的排序；hashmap的f32是插值结果（可能多个）与对应的xyz
+    // out_triangles:HashMap<f32,Vec<f32>>,//输出
+    pub type OneContoursOfAB = HashMap<String, HashMap<String, [f32; 3]>>; //AB
+    pub type AllContoursOfAB = HashMap<String, HashMap<String, OneContoursOfAB>>; //site-->frame
+
+    //所有的等值体,第一个String=site名称,第二个String=frame名称,第三个=插值数值
+    pub type AllContour = HashMap<String, HashMap<String, HashMap<String, Vec<f32>>>>;
 
     ///四面体重构数据
     ///network：四面体数据，无顺序，嵌套的Vec是节点列表（4个）
     ///
     pub struct OneTetrahedronNetwork {
         network: Vec<Vec<u64>>, //四面体节点数据index（a,b,c,d）
-        lines: HashMap<String, HashMap<f32, [f32; 3]>>, //所有lines，插值后的插值，String（a，b）节点的排序；hashmap的f32是插值结果（可能多个）与对应的xyz
-        // out_triangles:HashMap<f32,Vec<f32>>,//输出
     }
     pub struct TetrahedronNetwork {
         meshs: HashMap<String, OneTetrahedronNetwork>,
     }
+    pub fn generate_contour_of_trigangles(
+        values_list: Vec<f32>,
+        terah_network: &TetrahedronNetwork,
+        mesh: &mesh_source,
+        res: &resource_source,
+    ) -> AllContour {
+        let site_names = &res.result_componet;
+        let frames = &res.frames;
+
+        //所有线计划,每个nodeAB只计算一次
+        let mut AB: AllContoursOfAB = AllContoursOfAB::new();
+        //每个mesh的四面体计划
+        for per_mesh in terah_network.meshs.values() {
+            //每个sitename循环
+            for per_site in site_names {
+                if AB.get(per_site).is_none() {
+                    AB.insert(per_site.to_string(), HashMap::new());
+                }
+                //每帧循环
+                for per_frame in frames {
+                    if AB.get(per_site).unwrap().get(per_frame).is_none() {
+                        AB.get_mut(per_site)
+                            .unwrap()
+                            .insert(per_frame.to_string(), OneContoursOfAB::new());
+                    }
+                    //每个四面体序号
+                    for per_one_terahedron in &per_mesh.network {
+                        let lines: [[usize; 2]; 6] =
+                            [[0, 1], [1, 2], [0, 2], [0, 3], [1, 3], [2, 3]];
+                        //每条线循环
+                        for per_line in lines {
+                            let mut one_AB = vec![
+                                per_one_terahedron[per_line[0]],
+                                per_one_terahedron[per_line[1]],
+                            ];
+                            one_AB.sort();
+                            let one_AB_string = one_AB
+                                .iter()
+                                .map(|n| n.to_string())
+                                .collect::<Vec<String>>()
+                                .join("-");
+                            let point_a_position =
+                                mesh.nodes.get(&per_one_terahedron[per_line[0]]).unwrap();
+                            let point_a_vec = Vector3::new(
+                                point_a_position[0],
+                                point_a_position[1],
+                                point_a_position[2],
+                            );
+                            let point_b_position =
+                                mesh.nodes.get(&per_one_terahedron[per_line[1]]).unwrap();
+
+                            let point_b_vec = Vector3::new(
+                                point_b_position[0],
+                                point_b_position[1],
+                                point_b_position[2],
+                            );
+                            let point_a_value = get_res_by_site_frame_id(
+                                res,
+                                &per_site,
+                                &per_frame,
+                                per_one_terahedron[per_line[0]],
+                            );
+                            let point_b_value = get_res_by_site_frame_id(
+                                res,
+                                &per_site,
+                                &per_frame,
+                                per_one_terahedron[per_line[1]],
+                            );
+                            //每条线,求每个插值在AB之间是否有值,若有值,求位置
+                            for per_value in &values_list {
+                                let (vec1, v) = get_value_point_of_AB(
+                                    point_a_vec,
+                                    point_b_vec,
+                                    point_a_value,
+                                    point_b_value,
+                                    *per_value,
+                                );
+                                //在0-1之间
+                                if v >= 0.0 && v <= 1.0 {
+                                    if AB
+                                        .get(per_site)
+                                        .unwrap()
+                                        .get(per_frame)
+                                        .unwrap()
+                                        .get(&one_AB_string)
+                                        .is_none()
+                                    {
+                                        let mut name_s_f = AB
+                                            .get_mut(per_site)
+                                            .unwrap()
+                                            .get_mut(per_frame)
+                                            .unwrap();
+                                        name_s_f.insert(one_AB_string.clone(), HashMap::new());
+                                        let mut name_s_f_ab =
+                                            name_s_f.get_mut(&one_AB_string).unwrap();
+                                        let f32_3 = [vec1.x, vec1.y, vec1.z];
+                                        name_s_f_ab.insert(per_value.to_string(), f32_3);
+                                    } else if AB
+                                        .get(per_site)
+                                        .unwrap()
+                                        .get(per_frame)
+                                        .unwrap()
+                                        .get(&one_AB_string)
+                                        .unwrap()
+                                        .get(&per_value.to_string())
+                                        .is_none()
+                                    {
+                                        let mut name_s_f_ab = AB
+                                            .get_mut(per_site)
+                                            .unwrap()
+                                            .get_mut(per_frame)
+                                            .unwrap()
+                                            .get_mut(&one_AB_string)
+                                            .unwrap();
+                                        let f32_3 = [vec1.x, vec1.y, vec1.z];
+                                        name_s_f_ab.insert(per_value.to_string(), f32_3);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut list: AllContour = AllContour::new();
+        //site-->1
+        //        frames-->2
+        //               插值数组-->3
+        //                      t4-->4
+        //                         per t4-->5
+        //                                  perline-->6
+        //                                    check-->等值面（3||4点）
+        //
+        for per_site in site_names {
+            list.insert(per_site.to_string(), HashMap::new()); //1
+            for per_frame in frames {
+                //2
+                let mut s_f = list
+                    .get_mut(per_site)
+                    .unwrap()
+                    .insert(per_frame.to_owned(), HashMap::new())
+                    .unwrap();
+                //3,
+                for per_value in &values_list {
+                    //vec对应的xyz的vec
+                    let mut s_f_v;
+                    if s_f.get(&per_value.to_string()).is_none() {
+                        s_f.insert(per_value.to_string(), Vec::new());
+                    } else {
+                        s_f_v = s_f.get_mut(&per_value.to_string()).unwrap();
+                    }
+                    //4
+                    for per_mesh in terah_network.meshs.values() {
+                        //四面体集合
+                        //5
+                        for per_one_terahedron in &per_mesh.network {
+                            let lines: [[usize; 2]; 6] =
+                                [[0, 1], [1, 2], [0, 2], [0, 3], [1, 3], [2, 3]];
+                            //6
+                            let mut count_of_line: Vec<[usize; 2]>;
+                            for per_line in lines {
+                                let mut one_AB = vec![
+                                    per_one_terahedron[per_line[0]],
+                                    per_one_terahedron[per_line[1]],
+                                ];
+                                one_AB.sort();
+                                let one_AB_string = one_AB
+                                    .iter()
+                                    .map(|n| n.to_string())
+                                    .collect::<Vec<String>>()
+                                    .join("-");
+
+                                let (vec1, is_true) = get_C_by_site_frame_value__AB(
+                                    per_site,
+                                    per_frame,
+                                    &per_value.to_string(),
+                                    &one_AB_string,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return list;
+    }
+
+    pub fn get_C_by_site_frame_value__AB(
+        site: &str,
+        frame: &str,
+        value: &str,
+        ABString: &str,
+    ) -> (Vector3<f32>, bool) {
+    }
+    ///VA,VB与value的值,线性插值AB两点之间C,
+    pub fn get_value_point_of_AB(
+        A: Vector3<f32>,
+        B: Vector3<f32>,one_AB_string
+        VA: f32,
+        VB: f32,
+        value: f32,
+    ) -> (Vector3<f32>, f32) {
+        let vector1 = B - A;
+        let v = (value - VA) / (VB - VA);
+        (A + vector1 * v, v)
+    }
+
+    ///获取node对应的RES中的值
+    pub fn get_res_by_site_frame_id(
+        res: &resource_source,
+        site: &str,
+        frame: &str,
+        id: u64,
+    ) -> f32 {
+        let value = res
+            .result
+            .get(site)
+            .unwrap()
+            .get(frame)
+            .unwrap()
+            .get(&id)
+            .unwrap();
+        return value.clone();
+    }
     ///分成三个部分
-    /// 
+    ///
     ///1、输出四面体：六面体-->四面体，四面体不需要
-    /// 
+    ///
     ///2、for循环，每个四面体的6条线，进行插值
-    /// 
+    ///
     ///3、输出等值面三角形计划，
-    /// 
+    ///
     ///3.1、三个或四个点的属性排列，abc，abcd
-    /// 
+    ///
     ///3.2、输出三角形，1 or 2 个
     pub fn generate_network_tetrahedron_for_gid(
-        mesh: mesh_source,
-        res: resource_source,
+        mesh: &mesh_source,
+        res: &resource_source,
     ) -> TetrahedronNetwork {
         let mut outT: TetrahedronNetwork = TetrahedronNetwork {
             meshs: HashMap::new(),
@@ -363,7 +607,6 @@ mod gid {
                                        //新建的
             let mut per_one = OneTetrahedronNetwork {
                 network: Vec::new(),
-                lines: HashMap::new(),
             };
             if per_mesh.element_type == "Hexahedra Nnode 8" {
                 for per_Hexahedra in per_mesh.elements.values() {
@@ -436,7 +679,7 @@ mod gid {
     //     position: [f32; 3],
     //     // color: [f32; 4],
     // }
-    pub fn get_hexahedra8_of_triangle(mesh: mesh_source, res: resource_source) -> Vec<f32> {
+    pub fn get_hexahedra8_of_triangle(mesh: &mesh_source, res: &resource_source) -> Vec<f32> {
         let mut triangles: Vec<f32> = Vec::new();
         let nodes: &HashMap<u64, [f32; 3]> = &mesh.nodes;
         let per_hexahedra8_for_triangle: [[usize; 4]; 6] = [
@@ -472,6 +715,32 @@ mod gid {
                         );
                         for i in 0..two_positions.len() {
                             triangles.push(two_positions[i].clone());
+                        }
+                    }
+                }
+            }
+        }
+        return triangles;
+    }
+    pub fn get_tetrahedra4_of_triangle(mesh: &mesh_source, res: &resource_source) -> Vec<f32> {
+        let mut triangles: Vec<f32> = Vec::new();
+        let nodes: &HashMap<u64, [f32; 3]> = &mesh.nodes;
+        let per_hexahedra8_for_triangle: [[usize; 3]; 4] =
+            [[0, 1, 2], [0, 1, 3], [1, 2, 3], [2, 0, 3]];
+        for per_mesh in mesh.meshs.values() {
+            if per_mesh.element_type == "Tetrahedra Nnode 4" {
+                for per_Hexahedra in per_mesh.elements.values() {
+                    for face in per_hexahedra8_for_triangle {
+                        let one_positions = get_onetriangle(
+                            nodes,
+                            [
+                                per_Hexahedra[face[0]],
+                                per_Hexahedra[face[1]],
+                                per_Hexahedra[face[2]],
+                            ],
+                        );
+                        for i in 0..one_positions.len() {
+                            triangles.push(one_positions[i].clone());
                         }
                     }
                 }
