@@ -1,13 +1,15 @@
 //! GID解析
 pub use gid::{
-    generate_network_tetrahedron_for_gid, get_hexahedra8_of_triangle, get_msh, get_res,
-    get_res_by_site_frame_id, get_tetrahedra4_of_triangle, get_value_point_of_AB,
+    generate_contour_of_trigangles, generate_network_tetrahedron_for_gid,
+    get_hexahedra8_of_triangle, get_msh, get_res, get_res_by_site_frame_id,
+    get_tetrahedra4_of_triangle, get_value_point_of_AB,
 };
 pub use gid::{mesh_source, resource_source};
 mod gid {
-    // use cgmath::Vector3;
-    use nalgebra::Vector3;
-
+    use cgmath::{Matrix4, Vector3, Vector4};
+    // use nalgebra::Vector3;
+    // extern crate nalgebra_glm as glm;
+    // use nalgebra-glm::dot;
     use std::{
         collections::HashMap,
         convert::TryInto,
@@ -343,7 +345,8 @@ mod gid {
     //所有lines，插值后的插值，String（a，b）节点的排序；hashmap的f32是插值结果（可能多个）与对应的xyz
     // out_triangles:HashMap<f32,Vec<f32>>,//输出
     pub type OneContoursOfAB = HashMap<String, HashMap<String, [f32; 3]>>; //AB
-    pub type AllContoursOfAB = HashMap<String, HashMap<String, OneContoursOfAB>>; //site-->frame
+    pub type AllContoursOfAB =
+        HashMap<String, HashMap<String, HashMap<String, HashMap<String, [f32; 3]>>>>; //site-->frame-->AB-->Value-->[]
 
     //所有的等值体,第一个String=site名称,第二个String=frame名称,第三个=插值数值
     pub type AllContour = HashMap<String, HashMap<String, HashMap<String, Vec<f32>>>>;
@@ -494,24 +497,24 @@ mod gid {
             list.insert(per_site.to_string(), HashMap::new()); //1
             for per_frame in frames {
                 //2
-                let mut s_f = list
-                    .get_mut(per_site)
+                list.get_mut(per_site)
                     .unwrap()
-                    .insert(per_frame.to_owned(), HashMap::new())
-                    .unwrap();
+                    .insert(per_frame.to_owned(), HashMap::new());
+                let mut s_f = list.get_mut(per_site).unwrap().get_mut(per_frame).unwrap();
                 //3,
                 for per_value in &values_list {
                     //vec对应的xyz的vec
                     let mut s_f_v;
                     if s_f.get(&per_value.to_string()).is_none() {
                         s_f.insert(per_value.to_string(), Vec::new());
-                    } else {
-                        s_f_v = s_f.get_mut(&per_value.to_string()).unwrap();
                     }
+                    s_f_v = s_f.get_mut(&per_value.to_string()).unwrap();
+
                     //4
                     for per_mesh in terah_network.meshs.values() {
                         //四面体集合
                         //5
+                        let mut one_T4_point: Vec<Vec<f32>> = Vec::new();
                         for per_one_terahedron in &per_mesh.network {
                             let lines: [[usize; 2]; 6] =
                                 [[0, 1], [1, 2], [0, 2], [0, 3], [1, 3], [2, 3]];
@@ -530,12 +533,49 @@ mod gid {
                                     .join("-");
 
                                 let (vec1, is_true) = get_C_by_site_frame_value__AB(
+                                    &AB,
                                     per_site,
                                     per_frame,
-                                    &per_value.to_string(),
                                     &one_AB_string,
+                                    &per_value.to_string(),
                                 );
+                                print!("is true:{is_true} \n");
+                                if is_true {
+                                    one_T4_point.push(vec1);
+                                }
                             }
+                        }
+                        if one_T4_point.len() == 3 {
+                            for i in one_T4_point {
+                                for j in i {
+                                    s_f_v.push(j);
+                                }
+                            }
+                        } else if one_T4_point.len() == 4 {
+                            let p1 = Vector4::new(
+                                one_T4_point[0][0],
+                                one_T4_point[0][1],
+                                one_T4_point[0][2],
+                                1.0,
+                            );
+                            let p2 = Vector4::new(
+                                one_T4_point[1][0],
+                                one_T4_point[1][1],
+                                one_T4_point[1][2],
+                                1.0,
+                            );
+                            let p3 = Vector4::new(
+                                one_T4_point[2][0],
+                                one_T4_point[2][1],
+                                one_T4_point[2][2],
+                                1.0,
+                            );
+                            let p4 = Vector4::new(
+                                one_T4_point[3][0],
+                                one_T4_point[3][1],
+                                one_T4_point[4][2],
+                                1.0,
+                            );
                         }
                     }
                 }
@@ -545,23 +585,90 @@ mod gid {
         return list;
     }
 
+    pub fn get_rectangle_index(
+        p1: Vector4<f32>,
+        p2: Vector4<f32>,
+        p3: Vector4<f32>,
+        p4: Vector4<f32>,
+    ) -> [usize; 4] {
+        let mut indeies = [0, 1, 2, 3];
+        let m: Matrix4<f32> = Matrix4::new(
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        );
+        let mut a = p2 - p1;
+        let mut b = p3 - p1;
+        let mut c = p4 - p1;
+
+        return indeies;
+    }
     pub fn get_C_by_site_frame_value__AB(
+        AB: &AllContoursOfAB,
         site: &str,
         frame: &str,
-        value: &str,
         ABString: &str,
-    ) -> (Vector3<f32>, bool) {
+        value: &str,
+    ) -> (Vec<f32>, bool) {
+        let mut vec1: Vec<f32> = Vec::new();
+        let mut is_true = false;
+        let abc = AB.get(site);
+        // print!("AB:{:#?}",AB);
+        print!("AB===={ABString}");
+        if AB.get(site).is_some() {
+            if AB.get(site).unwrap().get(frame).is_some() {
+                if AB
+                    .get(site)
+                    .unwrap()
+                    .get(frame)
+                    .unwrap()
+                    .get(ABString)
+                    .is_some()
+                {
+                    if AB
+                        .get(site)
+                        .unwrap()
+                        .get(frame)
+                        .unwrap()
+                        .get(ABString)
+                        .unwrap()
+                        .get(value)
+                        .is_some()
+                    {
+                        let f32_3 = AB
+                            .get(site)
+                            .unwrap()
+                            .get(frame)
+                            .unwrap()
+                            .get(ABString)
+                            .unwrap()
+                            .get(value)
+                            .unwrap();
+
+                        for i in 0..f32_3.len() {
+                            vec1.push(f32_3[i]);
+                        }
+
+                        is_true = true;
+                    }
+                }
+            }
+        }
+        (vec1, is_true)
     }
     ///VA,VB与value的值,线性插值AB两点之间C,
     pub fn get_value_point_of_AB(
         A: Vector3<f32>,
-        B: Vector3<f32>,one_AB_string
+        B: Vector3<f32>,
         VA: f32,
         VB: f32,
         value: f32,
     ) -> (Vector3<f32>, f32) {
         let vector1 = B - A;
-        let v = (value - VA) / (VB - VA);
+        let mut v = -1.0;
+        if VB == VA && VA == 0.0 {
+        } else {
+            v = (value - VA) / (VB - VA);
+        }
+        println!("VA:{VA},VB{VB},V:{v}\n");
         (A + vector1 * v, v)
     }
 
