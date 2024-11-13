@@ -1,6 +1,6 @@
  GID Post Results File 1.0
  
- Result "unoda0" "Load Analysis"     1  Vector OnNodes
+ Result "a" "Load Analysis"     1  Vector OnNodes
  ComponentNames  "m"
  Values
                 1   10

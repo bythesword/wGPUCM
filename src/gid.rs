@@ -6,7 +6,10 @@ pub use gid::{
 };
 pub use gid::{mesh_source, resource_source};
 mod gid {
-    use cgmath::{Matrix4, Vector3, Vector4};
+    use cgmath::{InnerSpace, Matrix4, SquareMatrix, Vector3, Vector4};
+    use simple_delaunay_lib::delaunay_2d::{
+        delaunay_struct_2d::DelaunayStructure2D, simplicial_struct_2d::Node,
+    };
     // use nalgebra::Vector3;
     // extern crate nalgebra_glm as glm;
     // use nalgebra-glm::dot;
@@ -539,7 +542,7 @@ mod gid {
                                     &one_AB_string,
                                     &per_value.to_string(),
                                 );
-                                print!("is true:{is_true} \n");
+                                // print!("is true:{is_true} \n");
                                 if is_true {
                                     one_T4_point.push(vec1);
                                 }
@@ -573,9 +576,17 @@ mod gid {
                             let p4 = Vector4::new(
                                 one_T4_point[3][0],
                                 one_T4_point[3][1],
-                                one_T4_point[4][2],
+                                one_T4_point[3][2],
                                 1.0,
                             );
+                            let list = get_rectangle_index(p1, p2, p3, p4);
+                            for i in list {
+                                for j in i {
+                                    s_f_v.push(one_T4_point[j][0]);
+                                    s_f_v.push(one_T4_point[j][1]);
+                                    s_f_v.push(one_T4_point[j][2]);
+                                }
+                            }
                         }
                     }
                 }
@@ -590,17 +601,86 @@ mod gid {
         p2: Vector4<f32>,
         p3: Vector4<f32>,
         p4: Vector4<f32>,
-    ) -> [usize; 4] {
-        let mut indeies = [0, 1, 2, 3];
-        let m: Matrix4<f32> = Matrix4::new(
+    ) -> Vec<[usize; 3]> {
+        let mut point_a = Vector3::new(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z);
+        let mut x = point_a.normalize();
+        let mut z_orgin = Vector3::new(0.0, 0.0, 1.0);
+        let mut z = (z_orgin.cross(point_a.normalize())).normalize();
+
+        let mut y = z.cross(x);
+        y = y.normalize();
+
+        // print!("x={:#?}\n", x.normalize());
+        // print!("y={:#?}\n", y);
+        // print!("z={:#?}\n", z);
+
+        let mut m: Matrix4<f32> = Matrix4::new(
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         );
-        let mut a = p2 - p1;
-        let mut b = p3 - p1;
-        let mut c = p4 - p1;
+        m.x[0] = x[0];
+        m.x[1] = x[1];
+        m.x[2] = x[2];
 
-        return indeies;
+        m.y[0] = y[0];
+        m.y[1] = y[1];
+        m.y[2] = y[2];
+
+        m.z[0] = z[0];
+        m.z[1] = z[1];
+        m.z[2] = z[2];
+
+        m.w[0] = point_a[0];
+        m.w[1] = point_a[1];
+        m.w[2] = point_a[2];
+        let mv_world = m.invert().unwrap();
+        let p1n = mv_world * p1;
+        let p2n = mv_world * p2;
+        let p3n = mv_world * p3;
+        let p4n = mv_world * p4;
+
+        let mut point_list_2d: Vec<[f64; 2]> = Vec::new();
+        point_list_2d.push([p1n.x as f64, p1n.y as f64]);
+        point_list_2d.push([p2n.x as f64, p2n.y as f64]);
+        point_list_2d.push([p3n.x as f64, p3n.y as f64]);
+        point_list_2d.push([p4n.x as f64, p4n.y as f64]);
+
+        return get_2d_delanay(point_list_2d);
     }
+
+    pub fn get_2d_delanay(vec_pts: Vec<[f64; 2]>) -> Vec<[usize; 3]> {
+        // let mut vec_pts: Vec<[f64; 2]> = Vec::new();
+        // vec_pts.push([0.0, 0.0]);
+        // vec_pts.push([1.0, 0.0]);
+        // vec_pts.push([1.0, 1.0]);
+        // vec_pts.push([0.0, 1.0]);
+        // let mut vec_inds: Vec<usize> = Vec::new();
+
+        let mut list: Vec<[usize; 3]> = Vec::new();
+        let mut del_struct = DelaunayStructure2D::new();
+        del_struct.insert_vertices(&vec_pts, true);
+
+        for ind_triangle in 0..del_struct.get_simplicial().get_nb_triangles() {
+            // print!("====={ind_triangle}:___\n");
+            let tri = del_struct
+                .get_simplicial()
+                .get_triangle(ind_triangle)
+                .unwrap();
+            let [h1, h2, h3] = tri.halfedges();
+            let ind_pt1: Node = h1.first_node();
+            let ind_pt2 = h2.first_node();
+            let ind_pt3 = h3.first_node();
+            if let (Node::Value(val1), Node::Value(val2), Node::Value(val3)) =
+                (ind_pt1, ind_pt2, ind_pt3)
+            {
+                list.push([val1, val2, val3]);
+                // print!("{:#?},", val1);
+                // print!("{:#?},", val2);
+                // print!("{:#?}\n", val3);
+            }
+        }
+        return list;
+    }
+
     pub fn get_C_by_site_frame_value__AB(
         AB: &AllContoursOfAB,
         site: &str,
@@ -612,7 +692,7 @@ mod gid {
         let mut is_true = false;
         let abc = AB.get(site);
         // print!("AB:{:#?}",AB);
-        print!("AB===={ABString}");
+        // print!("AB===={ABString}");
         if AB.get(site).is_some() {
             if AB.get(site).unwrap().get(frame).is_some() {
                 if AB
@@ -668,7 +748,7 @@ mod gid {
         } else {
             v = (value - VA) / (VB - VA);
         }
-        println!("VA:{VA},VB{VB},V:{v}\n");
+        // println!("VA:{VA},VB{VB},V:{v}\n");
         (A + vector1 * v, v)
     }
 

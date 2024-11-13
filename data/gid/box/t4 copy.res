@@ -5,7 +5,7 @@
  Values
                 1   0
                 2   0
-                3   10
+                3   0
                 4   10
  end Values
  
