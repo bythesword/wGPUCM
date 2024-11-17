@@ -9,7 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 
 [dependencies]
-serde={version="1",features=["derive"]}
+serde={ version = "1", features = ["derive"] }
 serde_json = { version = "1.0", default-features = true, features = ["alloc"] }
 cgmath = "0.18"
 regex = "1.11.1"

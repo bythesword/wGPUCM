@@ -3,16 +3,20 @@
 use simple_delaunay_lib::delaunay_2d::{
     delaunay_struct_2d::DelaunayStructure2D, simplicial_struct_2d::Node,
 };
-use std::env::Args;
+use std::{collections::HashMap, env::Args};
 use tom_CM::run;
 // extern crate nalgebra_glm as glm;
 use cgmath::{dot, InnerSpace, Matrix3, Matrix4, SquareMatrix, Vector3, Vector4};
+use serde::{Deserialize, Serialize};
+// use serde_json::json;
+use serde_json::{json, Result, Value};
 use tom_CM::gid::{
     generate_contour_of_trigangles, generate_network_tetrahedron_for_gid,
     get_hexahedra8_of_triangle, get_msh, get_res, get_res_by_site_frame_id,
     get_tetrahedra4_of_triangle, get_value_point_of_AB,
 };
-
+ 
+ 
 fn main() {
     let mesh = get_msh("./data/gid/box/box.msh");
     let res = get_res("./data/gid/box/box.res");
@@ -23,18 +27,26 @@ fn main() {
 
     let vvv: f32 = 11.1;
     let trangles_of_contour = generate_contour_of_trigangles([vvv].to_vec(), &T4, &mesh, &res);
+
+    // let mut a = abc {
+    //     output: trangles_of_contour,
+    // };
+    let serialized = serde_json::to_string(&trangles_of_contour).unwrap();
+
+    print!("{}",serialized);
     // let abc = get_res_by_site_frame_id(&res, "a.m", "1", 4);
     // print!("id(4)={}",abc);
 
     // let triangles =get_hexahedra8_of_triangle(mesh, res);
     // let triangles = get_tetrahedra4_of_triangle(&mesh, &res);
-    let triangles = trangles_of_contour
-        .get("a.m")
-        .unwrap()
-        .get("1")
-        .unwrap()
-        .get(&vvv.to_string())
-        .unwrap();
-    // print!("{:#?}", triangles);
-    pollster::block_on(run(triangles.to_vec()));
+
+    // let triangles = trangles_of_contour
+    //     .get("a.m")
+    //     .unwrap()
+    //     .get("1")
+    //     .unwrap()
+    //     .get(&vvv.to_string())
+    //     .unwrap();
+    // // print!("{:#?}", triangles);
+    // pollster::block_on(run(triangles.to_vec()));
 }
